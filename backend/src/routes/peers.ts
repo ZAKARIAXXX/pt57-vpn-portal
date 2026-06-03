@@ -1,7 +1,16 @@
 import { Router, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import prisma from '../utils/prisma';
-import { generateWireGuardKeys, generateClientConfig } from '../utils/wg';
+import { generateWireGuardKeys, generateClientConfig, addWireGuardPeer, removeWireGuardPeer, toggleWireGuardPeer, fetchPeerTraffic } from '../utils/wg';
+
+function formatHandshake(unixSeconds: number): string {
+  if (!unixSeconds || unixSeconds === 0) return 'Never';
+  const diff = Math.floor(Date.now() / 1000) - unixSeconds;
+  if (diff < 60) return 'Just now';
+  if (diff < 3600) return `${Math.floor(diff / 60)} minutes ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)} hours ago`;
+  return `${Math.floor(diff / 86400)} days ago`;
+}
 
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'pt57_super_secret_key';
@@ -22,20 +31,27 @@ router.get('/', async (req: Request, res: Response) => {
     include: { user: { select: { fullName: true, email: true } } },
     orderBy: { createdAt: 'asc' },
   });
-  res.json(peers.map(p => ({
-    id: p.id,
-    name: p.name,
-    userName: p.user.fullName,
-    userEmail: p.user.email,
-    publicKey: p.publicKey,
-    allowedIPs: p.allowedIPs,
-    endpoint: p.endpoint,
-    isActive: p.isActive,
-    lastHandshake: p.lastHandshake,
-    txBytes: p.txBytes,
-    rxBytes: p.rxBytes,
-    createdAt: p.createdAt,
-  })));
+
+  let livePeers: { publicKey: string; txBytes: number; rxBytes: number; latestHandshake: number; endpoint: string }[] = [];
+  try { livePeers = await fetchPeerTraffic(); } catch {}
+
+  res.json(peers.map(p => {
+    const live = livePeers.find(l => l.publicKey === p.publicKey);
+    return {
+      id: p.id,
+      name: p.name,
+      userName: p.user.fullName,
+      userEmail: p.user.email,
+      publicKey: p.publicKey,
+      allowedIPs: p.allowedIPs,
+      endpoint: live?.endpoint || p.endpoint,
+      isActive: p.isActive,
+      lastHandshake: live ? formatHandshake(live.latestHandshake) : p.lastHandshake,
+      txBytes: live?.txBytes ?? p.txBytes,
+      rxBytes: live?.rxBytes ?? p.rxBytes,
+      createdAt: p.createdAt,
+    };
+  }));
 });
 
 // POST /api/peers  — provision a new WireGuard client
@@ -53,6 +69,14 @@ router.post('/', async (req: Request, res: Response) => {
     if (!user) { res.status(404).json({ error: 'User not found.' }); return; }
 
     const { publicKey, privateKey } = generateWireGuardKeys();
+    const serverPubKey = process.env.WG_SERVER_PUB_KEY || 'yfGpeKsP+3MQHebw/oBXi19x7NuCEEKultAyZQpvumY=';
+
+    try {
+      await addWireGuardPeer(publicKey, allowedIPs);
+    } catch (sshErr: any) {
+      res.status(502).json({ error: `Failed to add peer on WireGuard server: ${sshErr.message}` });
+      return;
+    }
 
     const peer = await prisma.peer.create({
       data: { name, userId, publicKey, allowedIPs, isActive: true },
@@ -60,15 +84,14 @@ router.post('/', async (req: Request, res: Response) => {
     await prisma.auditLog.create({
       data: { user: 'System', action: `Created peer "${name}" for ${user.fullName}`, severity: 'INFO' },
     });
-    // Return the private key only once — it is never stored in the DB
     res.status(201).json({
       id: peer.id,
       name: peer.name,
       publicKey: peer.publicKey,
-      privateKey,           // ← one-time reveal
+      privateKey,
       allowedIPs: peer.allowedIPs,
       isActive: peer.isActive,
-      configFile: generateClientConfig(allowedIPs, privateKey, peer.publicKey),
+      configFile: generateClientConfig(allowedIPs, privateKey, serverPubKey),
     });
   } catch (err: any) {
     if (err.code === 'P2002') { res.status(409).json({ error: 'Public key collision, retry.' }); return; }
@@ -87,6 +110,14 @@ router.put('/:id/status', async (req: Request, res: Response) => {
     const peer = await prisma.peer.findUnique({ where: { id }, include: { user: true } });
     if (!peer) { res.status(404).json({ error: 'Peer not found.' }); return; }
     const newStatus = !peer.isActive;
+
+    try {
+      await toggleWireGuardPeer(peer.publicKey, newStatus ? 'activate' : 'revoke', peer.allowedIPs);
+    } catch (sshErr: any) {
+      res.status(502).json({ error: `WireGuard server error: ${sshErr.message}` });
+      return;
+    }
+
     const updated = await prisma.peer.update({
       where: { id },
       data: { isActive: newStatus, lastHandshake: newStatus ? new Date().toISOString() : null },
@@ -112,8 +143,8 @@ router.get('/:id/config', async (req: Request, res: Response) => {
   try {
     const peer = await prisma.peer.findUnique({ where: { id } });
     if (!peer) { res.status(404).json({ error: 'Peer not found.' }); return; }
-    // Private key is never stored — config is regenerated as a template
-    const config = generateClientConfig(peer.allowedIPs, '<CLIENT_PRIVATE_KEY>', peer.publicKey);
+    const serverPubKey = process.env.WG_SERVER_PUB_KEY || 'yfGpeKsP+3MQHebw/oBXi19x7NuCEEKultAyZQpvumY=';
+    const config = generateClientConfig(peer.allowedIPs, '<CLIENT_PRIVATE_KEY>', serverPubKey);
     res.setHeader('Content-Disposition', `attachment; filename="${peer.name.replace(/\s+/g,'_')}_wireguard.conf"`);
     res.setHeader('Content-Type', 'text/plain');
     res.send(config);
@@ -132,6 +163,12 @@ router.delete('/:id', async (req: Request, res: Response) => {
   try {
     const peer = await prisma.peer.findUnique({ where: { id }, include: { user: true } });
     if (!peer) { res.status(404).json({ error: 'Peer not found.' }); return; }
+    try {
+      await removeWireGuardPeer(peer.publicKey);
+    } catch (sshErr: any) {
+      res.status(502).json({ error: `WireGuard server error: ${sshErr.message}` });
+      return;
+    }
     await prisma.peer.delete({ where: { id } });
     await prisma.auditLog.create({
       data: { user: 'System', action: `Deleted peer "${peer.name}" (${peer.user.fullName})`, severity: 'WARNING' },
