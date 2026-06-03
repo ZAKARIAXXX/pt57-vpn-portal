@@ -1,0 +1,44 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  fullName     String
+  role         String   @default("ADMIN") // "SUPER_ADMIN", "ADMIN", "AUDITOR"
+  department   String   @default("Engineering")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  peers        Peer[]
+}
+
+model Peer {
+  id            String   @id @default(uuid())
+  name          String
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  publicKey     String   @unique
+  allowedIPs    String
+  endpoint      String?
+  isActive      Boolean  @default(true)
+  lastHandshake String?
+  txBytes       Float    @default(0)
+  rxBytes       Float    @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  timestamp DateTime @default(now())
+  user      String
+  action    String
+  severity  String   @default("INFO") // "INFO", "WARNING", "CRITICAL"
+}
