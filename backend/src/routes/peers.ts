@@ -191,8 +191,8 @@ router.get('/:id/qrcode', async (req: Request, res: Response) => {
     if (!peer) { res.status(404).json({ error: 'Peer not found.' }); return; }
     const serverPubKey = process.env.WG_SERVER_PUB_KEY || 'yfGpeKsP+3MQHebw/oBXi19x7NuCEEKultAyZQpvumY=';
     const config = generateClientConfig(peer.allowedIPs, '<CLIENT_PRIVATE_KEY>', serverPubKey);
-    const dataUrl = await QRCode.toDataURL(config, { width: 400, margin: 2 });
-    res.json({ qrcode: dataUrl });
+    const svg = await QRCode.toString(config, { type: 'svg', width: 400, margin: 2 });
+    res.json({ qrcode: `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}` });
   } catch {
     res.status(500).json({ error: 'Internal server error.' });
   }
