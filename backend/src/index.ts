@@ -50,21 +50,12 @@ async function seed() {
     data: { fullName: 'Charlie Davis', email: 'charlie@enterprise.com', passwordHash: hash, role: 'AUDITOR', department: 'Security Audit' },
   });
 
-  // Seed peers
+  // Seed peers (clean state — no fake traffic or handshake strings)
   await prisma.peer.createMany({
     data: [
-      { name: 'MacBook Pro 16', userId: alice.id, publicKey: 'wg0+A2b8CxYz19Key=', allowedIPs: '10.8.0.2/32', endpoint: '198.51.100.42:51820', isActive: true, lastHandshake: '2 minutes ago', txBytes: 4210984, rxBytes: 25489700 },
-      { name: 'iPhone 15', userId: alice.id, publicKey: 'wg0+K9m1XtUv45Key=', allowedIPs: '10.8.0.3/32', endpoint: '198.51.100.42:61902', isActive: true, lastHandshake: '5 minutes ago', txBytes: 852044, rxBytes: 3125400 },
-      { name: 'Linux Server Backup', userId: bob.id, publicKey: 'wg0+Z6h2YqWp10Key=', allowedIPs: '10.8.0.4/32', isActive: false, txBytes: 0, rxBytes: 0 },
-    ],
-  });
-
-  // Seed audit logs
-  await prisma.auditLog.createMany({
-    data: [
-      { user: 'Alice Vance', action: 'Connected from 198.51.100.42', severity: 'INFO' },
-      { user: 'Bob Carter', action: 'Generated Peer wg0+Z6h2Y...', severity: 'INFO' },
-      { user: 'Charlie Davis', action: 'Failed Login Attempt from 203.0.113.8', severity: 'WARNING' },
+      { name: 'MacBook Pro 16', userId: alice.id, publicKey: 'wg0+A2b8CxYz19Key=', allowedIPs: '10.8.0.2/32', isActive: true },
+      { name: 'iPhone 15', userId: alice.id, publicKey: 'wg0+K9m1XtUv45Key=', allowedIPs: '10.8.0.3/32', isActive: true },
+      { name: 'Linux Server Backup', userId: bob.id, publicKey: 'wg0+Z6h2YqWp10Key=', allowedIPs: '10.8.0.4/32', isActive: false },
     ],
   });
 

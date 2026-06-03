@@ -50,7 +50,16 @@ export async function fetchWireGuardStatus(): Promise<{ vpnStatus: string; total
   }
 }
 
-export async function fetchPeerTraffic(): Promise<{ publicKey: string; txBytes: number; rxBytes: number; latestHandshake: number; endpoint: string }[]> {
+export interface LivePeer {
+  publicKey: string;
+  txBytes: number;
+  rxBytes: number;
+  latestHandshake: number;
+  endpoint: string;
+  allowedIPs: string;
+}
+
+export async function fetchPeerTraffic(): Promise<LivePeer[]> {
   try {
     const raw = await ssh(`bash ${WG_SCRIPTS}/status.sh`);
     const lines = raw.trim().split('\n').filter(l => l.startsWith('{'));
@@ -60,6 +69,7 @@ export async function fetchPeerTraffic(): Promise<{ publicKey: string; txBytes: 
       rxBytes: Number(p.transferRx) || 0,
       latestHandshake: Number(p.latestHandshake) || 0,
       endpoint: p.endpoint || '',
+      allowedIPs: p.allowedIPs && p.allowedIPs !== '(none)' ? p.allowedIPs : '',
     }));
   } catch {
     return [];

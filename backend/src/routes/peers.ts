@@ -1,7 +1,9 @@
 import { Router, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import prisma from '../utils/prisma';
+import QRCode from 'qrcode';
 import { generateWireGuardKeys, generateClientConfig, addWireGuardPeer, removeWireGuardPeer, toggleWireGuardPeer, fetchPeerTraffic } from '../utils/wg';
+import type { LivePeer } from '../utils/wg';
 
 function formatHandshake(unixSeconds: number): string {
   if (!unixSeconds || unixSeconds === 0) return 'Never';
@@ -32,7 +34,7 @@ router.get('/', async (req: Request, res: Response) => {
     orderBy: { createdAt: 'asc' },
   });
 
-  let livePeers: { publicKey: string; txBytes: number; rxBytes: number; latestHandshake: number; endpoint: string }[] = [];
+  let livePeers: LivePeer[] = [];
   try { livePeers = await fetchPeerTraffic(); } catch {}
 
   res.json(peers.map(p => {
@@ -43,12 +45,12 @@ router.get('/', async (req: Request, res: Response) => {
       userName: p.user.fullName,
       userEmail: p.user.email,
       publicKey: p.publicKey,
-      allowedIPs: p.allowedIPs,
-      endpoint: live?.endpoint || p.endpoint,
+      allowedIPs: live?.allowedIPs || p.allowedIPs,
+      endpoint: live?.endpoint || null,
       isActive: p.isActive,
-      lastHandshake: live ? formatHandshake(live.latestHandshake) : p.lastHandshake,
-      txBytes: live?.txBytes ?? p.txBytes,
-      rxBytes: live?.rxBytes ?? p.rxBytes,
+      lastHandshake: live ? formatHandshake(live.latestHandshake) : 'Never',
+      txBytes: live?.txBytes ?? 0,
+      rxBytes: live?.rxBytes ?? 0,
       createdAt: p.createdAt,
     };
   }));
@@ -174,6 +176,23 @@ router.delete('/:id', async (req: Request, res: Response) => {
       data: { user: 'System', action: `Deleted peer "${peer.name}" (${peer.user.fullName})`, severity: 'WARNING' },
     });
     res.json({ message: 'Peer deleted.' });
+  } catch {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// GET /api/peers/:id/qrcode  — QR code for WireGuard config
+router.get('/:id/qrcode', async (req: Request, res: Response) => {
+  const caller = getUser(req);
+  if (!caller) { res.status(401).json({ error: 'Unauthorized.' }); return; }
+  const { id } = req.params;
+  try {
+    const peer = await prisma.peer.findUnique({ where: { id } });
+    if (!peer) { res.status(404).json({ error: 'Peer not found.' }); return; }
+    const serverPubKey = process.env.WG_SERVER_PUB_KEY || 'yfGpeKsP+3MQHebw/oBXi19x7NuCEEKultAyZQpvumY=';
+    const config = generateClientConfig(peer.allowedIPs, '<CLIENT_PRIVATE_KEY>', serverPubKey);
+    const dataUrl = await QRCode.toDataURL(config, { width: 400, margin: 2 });
+    res.json({ qrcode: dataUrl });
   } catch {
     res.status(500).json({ error: 'Internal server error.' });
   }

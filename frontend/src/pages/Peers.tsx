@@ -9,7 +9,10 @@ export const Peers: React.FC = () => {
   const { peers, users, currentUser, fetchPeers, fetchUsers, addPeer, togglePeerStatus, deletePeer } = useStore();
   const [isOpen, setIsOpen] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
+  const [qrPeerId, setQrPeerId] = useState('');
+  const [qrCodeUrl, setQrCodeUrl] = useState('');
   const [successOpen, setSuccessOpen] = useState(false);
+  const [successQrUrl, setSuccessQrUrl] = useState('');
   const [selectedConf, setSelectedConf] = useState('');
   const [name, setName] = useState('');
   const [userId, setUserId] = useState('');
@@ -34,7 +37,6 @@ export const Peers: React.FC = () => {
     if (!userId) return;
     const res = await addPeer({ name, userId, allowedIPs });
     if (res) {
-      // Find public key from the newly fetched peers list
       const matchedPeer = useStore.getState().peers.find(p => p.name === name && p.allowedIPs === allowedIPs);
       setNewPeerCreds({
         name,
@@ -43,6 +45,15 @@ export const Peers: React.FC = () => {
         allowedIPs,
         configFile: res.configFile,
       });
+      if (matchedPeer) {
+        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+        const token = localStorage.getItem('pt57_token');
+        try {
+          const r = await fetch(`${API_URL}/peers/${matchedPeer.id}/qrcode`, { headers: { Authorization: `Bearer ${token}` } });
+          const d = await r.json();
+          setSuccessQrUrl(d.qrcode);
+        } catch {}
+      }
       setName('');
       setUserId('');
       setIsOpen(false);
@@ -143,7 +154,19 @@ export const Peers: React.FC = () => {
                   <Power size={18} className={p.isActive ? 'text-accent-emerald' : 'text-slate-500'} />
                 </Button>
               )}
-              <Button onClick={() => { setSelectedConf(p.name); setQrOpen(true); }} variant="secondary" className="p-2" title="Show QR Code">
+              <Button onClick={async () => {
+                setSelectedConf(p.name);
+                setQrPeerId(p.id);
+                setQrCodeUrl('');
+                const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+                const token = localStorage.getItem('pt57_token');
+                try {
+                  const r = await fetch(`${API_URL}/peers/${p.id}/qrcode`, { headers: { Authorization: `Bearer ${token}` } });
+                  const d = await r.json();
+                  setQrCodeUrl(d.qrcode);
+                } catch {}
+                setQrOpen(true);
+              }} variant="secondary" className="p-2" title="Show QR Code">
                 <QrCode size={18} />
               </Button>
               <Button onClick={() => downloadConfig(p.id, p.name)} variant="secondary" className="p-2" title="Download Config File">
@@ -233,6 +256,12 @@ export const Peers: React.FC = () => {
               </div>
             </div>
 
+
+            {successQrUrl && (
+              <div className="flex justify-center">
+                <img src={successQrUrl} alt="QR" className="w-40 h-40 rounded-xl" />
+              </div>
+            )}
             <div className="flex gap-3 pt-4 border-t border-white/5">
               <Button onClick={() => downloadRawConfig(newPeerCreds.name, newPeerCreds.configFile)} className="flex-1 flex items-center justify-center gap-2 py-3">
                 <FileCode size={18} /> Download .conf Profile
@@ -245,27 +274,15 @@ export const Peers: React.FC = () => {
         )}
       </Modal>
 
-      {/* QR Code mock modal */}
+      {/* QR Code modal */}
       <Modal isOpen={qrOpen} onClose={() => setQrOpen(false)} title={`Mobile Config for ${selectedConf}`}>
         <div className="flex flex-col items-center py-6 text-center space-y-4">
-          <div className="w-48 h-48 bg-white p-3 rounded-xl flex items-center justify-center">
-            <svg viewBox="0 0 100 100" className="w-full h-full text-black">
-              <rect x="0" y="0" width="100" height="100" fill="white" />
-              <rect x="10" y="10" width="30" height="30" fill="black" />
-              <rect x="15" y="15" width="20" height="20" fill="white" />
-              <rect x="18" y="18" width="14" height="14" fill="black" />
-              <rect x="60" y="10" width="30" height="30" fill="black" />
-              <rect x="65" y="15" width="20" height="20" fill="white" />
-              <rect x="68" y="18" width="14" height="14" fill="black" />
-              <rect x="10" y="60" width="30" height="30" fill="black" />
-              <rect x="15" y="65" width="20" height="20" fill="white" />
-              <rect x="60" y="60" width="15" height="15" fill="black" />
-              <rect x="75" y="75" width="15" height="15" fill="black" />
-              <rect x="60" y="80" width="10" height="10" fill="black" />
-              <rect x="80" y="60" width="10" height="10" fill="black" />
-            </svg>
-          </div>
-          <p className="text-sm text-slate-400 px-4">Scan this QR Code using the official iOS or Android WireGuard App to import tunnel credentials instantly.</p>
+          {qrCodeUrl ? (
+            <img src={qrCodeUrl} alt="WireGuard QR Code" className="w-64 h-64 rounded-xl" />
+          ) : (
+            <div className="w-64 h-64 flex items-center justify-center text-slate-500">Loading QR...</div>
+          )}
+          <p className="text-sm text-slate-400 px-4">Scan with the official WireGuard app on iOS or Android to import tunnel credentials.</p>
         </div>
       </Modal>
     </div>
