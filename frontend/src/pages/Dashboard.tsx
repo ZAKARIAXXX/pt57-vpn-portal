@@ -94,10 +94,20 @@ export const Dashboard: React.FC = () => {
       {/* Real-time charting */}
       <Card>
         <div className="flex justify-between items-center mb-6">
-          <h3 className="text-lg font-semibold text-white">Dynamic Port Ingress & Egress</h3>
+          <h3 className="text-lg font-semibold text-white">Live Bandwidth</h3>
           <span className="flex items-center gap-2 text-xs font-semibold text-accent-emerald uppercase bg-accent-emerald/10 px-3 py-1.5 rounded-full">
-            <span className="w-2 h-2 rounded-full bg-accent-emerald animate-pulse" /> Live Metrics Feed
+            <span className="w-2 h-2 rounded-full bg-accent-emerald animate-pulse" /> Live
           </span>
+        </div>
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          <div className="bg-emerald-500/5 rounded-lg p-3 border border-emerald-500/10">
+            <p className="text-xs text-slate-400 uppercase tracking-wider">Total Ingress</p>
+            <p className="text-lg font-bold text-emerald-400">{formatBytes(overviewStats?.totalRxBytes ?? 0)}</p>
+          </div>
+          <div className="bg-blue-500/5 rounded-lg p-3 border border-blue-500/10">
+            <p className="text-xs text-slate-400 uppercase tracking-wider">Total Egress</p>
+            <p className="text-lg font-bold text-blue-400">{formatBytes(overviewStats?.totalTxBytes ?? 0)}</p>
+          </div>
         </div>
         <div className="h-80 w-full">
           <ResponsiveContainer width="100%" height="100%">
