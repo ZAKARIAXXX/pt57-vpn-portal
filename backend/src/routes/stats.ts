@@ -20,6 +20,9 @@ router.get('/overview', async (req: Request, res: Response) => {
   const totalUsers = await prisma.user.count();
   const totalPeers = await prisma.peer.count();
   const activePeers = await prisma.peer.count({ where: { isActive: true } });
+  const dbPeers = await prisma.peer.findMany({ select: { txBytes: true, rxBytes: true } });
+  const dbTx = dbPeers.reduce((s, p) => s + p.txBytes, 0);
+  const dbRx = dbPeers.reduce((s, p) => s + p.rxBytes, 0);
   const wgStatus = await fetchWireGuardStatus();
 
   res.json({
@@ -27,8 +30,8 @@ router.get('/overview', async (req: Request, res: Response) => {
     totalUsers,
     totalPeers,
     activePeers: wgStatus.totalPeers > 0 ? wgStatus.activePeers : activePeers,
-    totalTxBytes: wgStatus.totalTxBytes,
-    totalRxBytes: wgStatus.totalRxBytes,
+    totalTxBytes: wgStatus.totalTxBytes || dbTx,
+    totalRxBytes: wgStatus.totalRxBytes || dbRx,
   });
 });
 
